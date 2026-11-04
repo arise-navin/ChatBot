@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import secrets
 from typing import List, Optional, Dict, Any
@@ -318,6 +319,199 @@ def delete_guardrail(rule_id: int):
     """Deletes a guardrail rule from Neon DB."""
     database.delete_guardrail_rule(rule_id)
     return {"status": "deleted", "rule_id": rule_id}
+
+# ----------------- Remote Management Actions (Agents Protocol from User Specs) -----------------
+
+class RemoteAgentRunRequest(BaseModel):
+    input: Optional[Any] = None
+    prompt: Optional[str] = None
+    messages: Optional[List[Dict[str, Any]]] = None
+    action: Optional[str] = "remote_run"
+    metadata: Optional[Dict[str, Any]] = None
+
+@app.get("/agents")
+@app.get("/api/agents")
+def test_and_discover_agents():
+    """
+    Implements 'test' and 'discover' actions (GET /agents).
+    Returns registered agents and the top-level 'agent' object for JSON pointer /agent.
+    """
+    agents_list = database.list_registered_agents()
+    primary = agents_list[0] if agents_list else {
+        "id": "beam-agent-1",
+        "name": "Beam Cloud AI Agent",
+        "description": "Production reasoning agent powered by Ollama beam:cloud",
+        "model": "beam:cloud",
+        "status": "active"
+    }
+    return {
+        "status": "success",
+        "count": len(agents_list),
+        "agents": agents_list,
+        "agent": primary  # Satisfies Tracking agent object JSON pointer: /agent
+    }
+
+@app.get("/agents/{agent_id}/track")
+@app.get("/api/agents/{agent_id}/track")
+def track_agent_endpoint(agent_id: str):
+    """
+    Implements 'track' action (GET /agents/{id}/track).
+    Returns real-time status and tracking metrics for the agent.
+    """
+    agent_info = database.get_or_create_registered_agent(agent_id)
+    metrics = database.get_agent_tracking_metrics(agent_id)
+    is_aborted = database.is_session_aborted(agent_id)
+    status_val = "stopped" if is_aborted else agent_info.get("status", "active")
+    
+    agent_obj = {
+        "id": agent_id,
+        "name": agent_info.get("name"),
+        "status": status_val,
+        "model": agent_info.get("model", "beam:cloud"),
+        "total_executions": metrics.get("total_executions", 0),
+        "avg_latency_ms": metrics.get("avg_latency_ms", 0),
+        "total_tokens": metrics.get("total_tokens", 0)
+    }
+    return {
+        "status": "success",
+        "agentId": agent_id,
+        "state": status_val,
+        "metrics": metrics,
+        "agent": agent_obj
+    }
+
+@app.get("/agents/executions")
+@app.get("/api/agents/executions")
+def get_agent_executions_endpoint(agentId: Optional[str] = Query(None), limit: int = 50):
+    """
+    Implements 'executions' action (GET /agents/executions?agentId={id}).
+    Returns execution history and tracking logs for the agent.
+    """
+    target_id = agentId or "beam-agent-1"
+    logs = database.get_ai_tracking_logs(limit=limit, agent_name=target_id)
+    agent_info = database.get_or_create_registered_agent(target_id)
+
+    executions_data = [
+        {
+            "id": l["id"],
+            "agentId": l.get("agent_name"),
+            "action": l.get("action"),
+            "status": l.get("status"),
+            "duration_ms": l.get("total_duration_ms"),
+            "prompt": l.get("prompt"),
+            "response": l.get("response"),
+            "thinking": l.get("thinking"),
+            "tokens": (l.get("prompt_eval_count") or 0) + (l.get("eval_count") or 0),
+            "timestamp": l.get("created_at")
+        } for l in logs
+    ]
+
+    return {
+        "status": "success",
+        "agentId": target_id,
+        "count": len(executions_data),
+        "executions": executions_data,
+        "agent": agent_info
+    }
+
+@app.post("/agents/{agent_id}/run")
+@app.post("/api/agents/{agent_id}/run")
+async def run_remote_agent_endpoint(agent_id: str, request: Request):
+    """
+    Implements 'run' action (POST /agents/{id}/run).
+    Executes task with Ollama beam:cloud, passes through guardrails, and records in Neon DB.
+    """
+    # Accept arbitrary JSON body
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    prompt = body.get("prompt") or body.get("input")
+    messages = body.get("messages")
+    if not messages:
+        if isinstance(prompt, str) and prompt.strip():
+            messages = [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, dict):
+            messages = [{"role": "user", "content": json.dumps(prompt)}]
+        else:
+            messages = [{"role": "user", "content": "Execute agent task"}]
+
+    action = body.get("action") or "remote_run"
+    metadata = body.get("metadata") or {}
+
+    res = ollama_client.call_ollama(
+        messages=messages,
+        session_id=agent_id,
+        source="remote_agent_run",
+        agent_name=agent_id,
+        action=action,
+        metadata=metadata
+    )
+
+    agent_info = database.get_or_create_registered_agent(agent_id)
+    is_intercepted = res.get("intercepted", False)
+
+    return {
+        "status": "intercepted" if is_intercepted else "completed",
+        "agentId": agent_id,
+        "output": res.get("content"),
+        "content": res.get("content"),
+        "thinking": res.get("thinking"),
+        "duration_ms": res.get("total_duration_ms"),
+        "prompt_tokens": res.get("prompt_eval_count"),
+        "completion_tokens": res.get("eval_count"),
+        "is_intercepted": is_intercepted,
+        "agent": agent_info
+    }
+
+@app.post("/agents/{agent_id}/pause")
+@app.post("/api/agents/{agent_id}/pause")
+def pause_remote_agent_endpoint(agent_id: str):
+    """
+    Implements 'pause' action (POST /agents/{id}/pause).
+    Pauses the agent.
+    """
+    updated = database.update_agent_status(agent_id, "paused")
+    return {
+        "status": "success",
+        "action": "pause",
+        "agentId": agent_id,
+        "agent": updated
+    }
+
+@app.post("/agents/{agent_id}/stop")
+@app.post("/api/agents/{agent_id}/stop")
+def stop_remote_agent_endpoint(agent_id: str):
+    """
+    Implements 'stop' action (POST /agents/{id}/stop).
+    Stops the agent immediately (Emergency Kill-Switch).
+    """
+    database.set_session_aborted(agent_id, reason=f"Stopped via remote management action /agents/{agent_id}/stop")
+    updated = database.update_agent_status(agent_id, "stopped")
+    return {
+        "status": "success",
+        "action": "stop",
+        "agentId": agent_id,
+        "agent": updated
+    }
+
+@app.post("/agents/{agent_id}/activate")
+@app.post("/api/agents/{agent_id}/activate")
+def activate_remote_agent_endpoint(agent_id: str):
+    """
+    Implements 'activate' action (POST /agents/{id}/activate).
+    Activates the agent.
+    """
+    database.reset_session_aborted(agent_id)
+    updated = database.update_agent_status(agent_id, "active")
+    return {
+        "status": "success",
+        "action": "activate",
+        "agentId": agent_id,
+        "agent": updated
+    }
 
 # ----------------- Connections Endpoints -----------------
 

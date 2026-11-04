@@ -103,6 +103,26 @@ def init_db():
                 );
             """)
 
+            # 6. Registered Remote Agents table (For Remote Management Actions)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS registered_agents (
+                    id VARCHAR(64) PRIMARY KEY,
+                    name VARCHAR(128) NOT NULL,
+                    description TEXT,
+                    model VARCHAR(64) DEFAULT 'beam:cloud',
+                    status VARCHAR(32) DEFAULT 'active',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+            cur.execute("SELECT COUNT(*) FROM registered_agents;")
+            if cur.fetchone()[0] == 0:
+                cur.execute("""
+                    INSERT INTO registered_agents (id, name, description, model, status)
+                    VALUES ('beam-agent-1', 'Beam Cloud AI Agent', 'Production reasoning agent powered by Ollama beam:cloud', 'beam:cloud', 'active');
+                """)
+
             # Seed default guardrail rules if table is empty
             cur.execute("SELECT COUNT(*) FROM guardrail_rules;")
             if cur.fetchone()[0] == 0:
@@ -681,3 +701,83 @@ def evaluate_content_guardrails(content: str, thinking: str = None) -> dict:
             }
 
     return {"is_safe": True, "rule_name": None, "matched_text": None, "fallback_message": None}
+
+# ----------------- Remote Management Actions (Agents Protocol) -----------------
+
+def get_or_create_registered_agent(agent_id: str = "beam-agent-1", name: str = "Beam Cloud AI Agent"):
+    """Fetches or registers an agent for remote management actions."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM registered_agents WHERE id = %s;", (agent_id,))
+            row = cur.fetchone()
+            if not row:
+                cur.execute("""
+                    INSERT INTO registered_agents (id, name, description, model, status)
+                    VALUES (%s, %s, %s, 'beam:cloud', 'active')
+                    RETURNING *;
+                """, (agent_id, name, f"Remote agent {name}"))
+                row = cur.fetchone()
+                conn.commit()
+            return dict(row)
+    finally:
+        conn.close()
+
+def list_registered_agents():
+    """Returns all registered agents."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM registered_agents ORDER BY created_at ASC;")
+            rows = cur.fetchall()
+            if not rows:
+                get_or_create_registered_agent()
+                cur.execute("SELECT * FROM registered_agents ORDER BY created_at ASC;")
+                rows = cur.fetchall()
+            return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def update_agent_status(agent_id: str, status: str):
+    """Updates status for an agent ('active', 'paused', 'stopped')."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE registered_agents 
+                SET status = %s, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = %s 
+                RETURNING *;
+            """, (status, agent_id))
+            row = cur.fetchone()
+            if not row:
+                cur.execute("""
+                    INSERT INTO registered_agents (id, name, status, model)
+                    VALUES (%s, %s, %s, 'beam:cloud')
+                    RETURNING *;
+                """, (agent_id, f"Agent-{agent_id}", status))
+                row = cur.fetchone()
+            conn.commit()
+            return dict(row)
+    finally:
+        conn.close()
+
+def get_agent_tracking_metrics(agent_id: str):
+    """Calculates live tracking statistics for a specific agent."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_executions,
+                    COALESCE(AVG(total_duration_ms), 0) as avg_latency_ms,
+                    COALESCE(SUM(prompt_eval_count), 0) + COALESCE(SUM(eval_count), 0) as total_tokens,
+                    COUNT(*) FILTER (WHERE status = 'error') as error_count,
+                    COUNT(*) FILTER (WHERE status = 'intercepted') as intercepted_count
+                FROM ai_tracking_logs 
+                WHERE agent_name = %s OR session_id = %s;
+            """, (agent_id, agent_id))
+            stats = cur.fetchone()
+            return dict(stats) if stats else {}
+    finally:
+        conn.close()

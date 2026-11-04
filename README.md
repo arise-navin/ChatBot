@@ -159,3 +159,23 @@ When intercepted:
 - A safe replacement message is delivered instead.
 - The violation event is logged into Neon PostgreSQL with `status: "intercepted"`.
 
+---
+
+## 🤖 Remote Management Actions & Agents Protocol (100% Compatible)
+
+This application natively implements the standard Remote Agent Management & Tracking specifications:
+
+| Action | HTTP Method | Endpoint | Description |
+|---|---|---|---|
+| **test** | `GET` | `/agents` | Test connection / verify mapping |
+| **discover** | `GET` | `/agents` | Discover all available mapped agents |
+| **track** | `GET` | `/agents/{id}/track` | Real-time agent status & tracking metrics |
+| **executions** | `GET` | `/agents/executions?agentId={id}` | Historical execution logs for the agent |
+| **run** | `POST` | `/agents/{id}/run` | Execute task with Ollama beam:cloud + guardrails |
+| **pause** | `POST` | `/agents/{id}/pause` | Pause an agent's execution |
+| **stop** | `POST` | `/agents/{id}/stop` | Emergency Stop / abort an active agent |
+| **activate** | `POST` | `/agents/{id}/activate` | Re-activate a stopped/paused agent |
+
+* **Tracking agent object JSON pointer**: `/agent` (Supported natively in all responses).
+
+
