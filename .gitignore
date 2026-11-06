@@ -5,3 +5,5 @@ __pycache__/
 .streamlit/
 .vercel/
 .env.local
+vendor/signet-sdk/build/
+vendor/signet-sdk/*.egg-info/

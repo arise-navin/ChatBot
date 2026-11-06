@@ -6,6 +6,7 @@ from typing import TypedDict
 from urllib.parse import urlsplit, urlunsplit
 from dotenv import load_dotenv
 import database
+from signet_identity import required_setting, workload_token
 
 load_dotenv()
 
@@ -19,23 +20,15 @@ class AgentConfig(TypedDict):
     api_token: str
 
 
-def required_environment(name: str) -> str:
-    """Read a required server setting without reverting to a stored upstream key."""
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise ValueError(f"{name} is required for the agent's governed LLM connection")
-    return value
-
-
 def ollama_chat_url(base_url: str) -> str:
     """Accept a native Ollama endpoint or a server base URL such as Signet's URL."""
     parsed = urlsplit(base_url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.query or parsed.fragment:
-        raise ValueError("OLLAMA_BASE_URL must be an HTTP(S) address without a query or fragment")
+        raise ValueError("SIGNET_GATEWAY_URL must be an HTTP(S) address without a query or fragment")
     path = parsed.path.rstrip("/")
     if path != "/api/chat":
         if path:
-            raise ValueError("OLLAMA_BASE_URL must be a server URL without /v1, or end in /api/chat")
+            raise ValueError("SIGNET_GATEWAY_URL must be a server URL without /v1, or end in /api/chat")
         path = "/api/chat"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
@@ -44,9 +37,9 @@ def get_dynamic_config() -> AgentConfig:
     """Use server LLM settings; database profiles configure REST tracking only."""
     active_conn = database.get_active_api_connection()
     return {
-        "model": required_environment("OLLAMA_MODEL"),
-        "api_key": required_environment("OLLAMA_API_KEY"),
-        "base_url": ollama_chat_url(required_environment("OLLAMA_BASE_URL")),
+        "model": required_setting("OLLAMA_MODEL"),
+        "api_key": workload_token(),
+        "base_url": ollama_chat_url(required_setting("SIGNET_GATEWAY_URL")),
         "enable_external_tracking": bool(active_conn and active_conn.get("enable_external_tracking")),
         "external_tracking_url": active_conn.get("external_tracking_url") if active_conn else None,
         "header_name": active_conn["header_name"] if active_conn else "x-api-key",
@@ -100,7 +93,8 @@ def call_ollama(
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-signet-session": session_id,
     }
 
     payload = {
@@ -311,7 +305,8 @@ def stream_ollama(
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-signet-session": session_id,
     }
 
     payload = {

@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import secrets
+import hmac
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Depends, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,8 @@ from dotenv import load_dotenv
 
 import database
 import ollama_client
+from signet_identity import WorkloadClaims, initialize_identity_store, required_setting, workload_token
+from signet_sdk import decode_claims
 
 load_dotenv()
 
@@ -147,6 +150,16 @@ def health_check():
         "active_model": active_conn.get("model_name") if active_conn else "beam:cloud",
         "header_name": active_conn.get("header_name") if active_conn else "x-api-key"
     }
+
+
+@app.post("/api/signet/identity/refresh", response_model=WorkloadClaims)
+def refresh_signet_identity(request: Request) -> WorkloadClaims:
+    """Keep the bootstrap identity alive using the authenticated Signet maintenance daemon."""
+    expected = required_setting("SIGNET_WORKLOAD_REFRESH_TOKEN")
+    supplied = request.headers.get("x-signet-workload-refresh", "")
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Invalid Signet workload refresh credential")
+    return WorkloadClaims.model_validate(decode_claims(workload_token()))
 
 @app.post("/api/chat", dependencies=[Depends(verify_dynamic_api_key)])
 @app.post("/api/agent/run", dependencies=[Depends(verify_dynamic_api_key)])
@@ -585,3 +598,4 @@ def delete_connection(conn_id: int):
 @app.on_event("startup")
 def on_startup():
     database.init_db()
+    initialize_identity_store()
