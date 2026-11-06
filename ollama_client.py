@@ -58,7 +58,7 @@ def call_ollama(
     session_id: str = "default",
     source: str = "web_ui",
     client_ip: str = None,
-    agent_name: str = "Beam-Agent",
+    agent_name: str = "beam-agent-1",
     action: str = "chat_completion",
     step_number: int = 1,
     metadata: dict = None
@@ -272,7 +272,7 @@ def stream_ollama(
     session_id: str = "default",
     source: str = "web_ui",
     client_ip: str = None,
-    agent_name: str = "Beam-Agent",
+    agent_name: str = "beam-agent-1",
     action: str = "streaming_chat",
     step_number: int = 1,
     metadata: dict = None

@@ -70,7 +70,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS ai_tracking_logs (
                     id SERIAL PRIMARY KEY,
                     session_id VARCHAR(64),
-                    agent_name VARCHAR(128) DEFAULT 'Beam-Agent',
+                    agent_name VARCHAR(128) DEFAULT 'beam-agent-1',
                     action VARCHAR(128) DEFAULT 'chat_completion',
                     step_number INTEGER DEFAULT 1,
                     model VARCHAR(64) NOT NULL,
@@ -399,7 +399,7 @@ def log_ai_tracking(
     error_message: str = None,
     source: str = "web_ui",
     client_ip: str = None,
-    agent_name: str = "Beam-Agent",
+    agent_name: str = "beam-agent-1",
     action: str = "chat_completion",
     step_number: int = 1,
     metadata: dict = None

@@ -722,7 +722,7 @@ elif menu == "📊 AI Agent Tracking Logs":
     with f1:
         filter_source = st.selectbox("Source", ["All", "web_ui", "rest_api", "external_rest_api", "connection_test"])
     with f2:
-        filter_agent = st.text_input("Filter by Agent Name", placeholder="e.g. Beam-Agent")
+        filter_agent = st.text_input("Filter by Agent Name", placeholder="e.g. beam-agent-1")
     with f3:
         filter_status = st.selectbox("Status", ["All", "success", "error"])
     with f4:

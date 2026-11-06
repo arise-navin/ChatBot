@@ -64,7 +64,7 @@ class ChatMessage(BaseModel):
 
 class AgentRunRequest(BaseModel):
     messages: List[ChatMessage]
-    agent_name: Optional[str] = "Beam-Agent"
+    agent_name: Optional[str] = "beam-agent-1"
     action: Optional[str] = "agent_execution"
     step_number: Optional[int] = 1
     model: Optional[str] = None
@@ -176,7 +176,7 @@ def run_agent_workflow(req: AgentRunRequest, request: Request):
         session_id=session_id,
         source="rest_api",
         client_ip=client_ip,
-        agent_name=req.agent_name or "Beam-Agent",
+        agent_name=req.agent_name or "beam-agent-1",
         action=req.action or "chat_completion",
         step_number=req.step_number or 1,
         metadata=req.metadata or {}

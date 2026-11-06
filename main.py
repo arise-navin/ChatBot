@@ -74,7 +74,7 @@ HTML_UI = """
                         <span id="active-model-tag" class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded">beam:cloud</span>
                     </div>
                     <div class="flex items-center space-x-3">
-                        <input id="agent-name-input" type="text" value="Beam-Agent" class="text-xs border border-slate-300 rounded px-2 py-1 w-36" placeholder="Agent Name">
+                        <input id="agent-name-input" type="text" value="beam-agent-1" class="text-xs border border-slate-300 rounded px-2 py-1 w-36" placeholder="Agent Name">
                         <button onclick="clearChat()" class="text-xs text-slate-500 hover:text-red-600 transition">Clear Chat</button>
                     </div>
                 </div>
@@ -397,7 +397,7 @@ HTML_UI = """
                     method: 'POST',
                     headers: headers,
                     body: JSON.stringify({
-                        agent_name: document.getElementById('agent-name-input').value || 'Beam-Agent',
+                        agent_name: document.getElementById('agent-name-input').value || 'beam-agent-1',
                         action: 'chat_execution',
                         step_number: 1,
                         messages: [{ role: 'user', content: prompt }],
