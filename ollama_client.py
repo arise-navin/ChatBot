@@ -2,39 +2,55 @@ import os
 import time
 import json
 import requests
+from typing import TypedDict
+from urllib.parse import urlsplit, urlunsplit
 from dotenv import load_dotenv
 import database
 
 load_dotenv()
 
-def get_dynamic_config():
-    """
-    Dynamically loads the active REST API connection parameters from Neon PostgreSQL.
-    Falls back to environment variables if database is empty. Nothing is hardcoded.
-    """
-    try:
-        active_conn = database.get_active_api_connection()
-        if active_conn:
-            return {
-                "model": active_conn.get("model_name") or os.getenv("OLLAMA_MODEL", "beam:cloud"),
-                "api_key": active_conn.get("auth_api_key") or os.getenv("OLLAMA_API_KEY", ""),
-                "base_url": active_conn.get("ollama_base_url") or os.getenv("OLLAMA_BASE_URL", "https://ollama.com/api/chat"),
-                "enable_external_tracking": active_conn.get("enable_external_tracking", False),
-                "external_tracking_url": active_conn.get("external_tracking_url"),
-                "header_name": active_conn.get("header_name", "x-api-key"),
-                "api_token": active_conn.get("api_token", "")
-            }
-    except Exception:
-        pass
+class AgentConfig(TypedDict):
+    model: str
+    api_key: str
+    base_url: str
+    enable_external_tracking: bool
+    external_tracking_url: str | None
+    header_name: str
+    api_token: str
 
+
+def required_environment(name: str) -> str:
+    """Read a required server setting without reverting to a stored upstream key."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ValueError(f"{name} is required for the agent's governed LLM connection")
+    return value
+
+
+def ollama_chat_url(base_url: str) -> str:
+    """Accept a native Ollama endpoint or a server base URL such as Signet's URL."""
+    parsed = urlsplit(base_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.query or parsed.fragment:
+        raise ValueError("OLLAMA_BASE_URL must be an HTTP(S) address without a query or fragment")
+    path = parsed.path.rstrip("/")
+    if path != "/api/chat":
+        if path:
+            raise ValueError("OLLAMA_BASE_URL must be a server URL without /v1, or end in /api/chat")
+        path = "/api/chat"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def get_dynamic_config() -> AgentConfig:
+    """Use server LLM settings; database profiles configure REST tracking only."""
+    active_conn = database.get_active_api_connection()
     return {
-        "model": os.getenv("OLLAMA_MODEL", "beam:cloud"),
-        "api_key": os.getenv("OLLAMA_API_KEY", ""),
-        "base_url": os.getenv("OLLAMA_BASE_URL", "https://ollama.com/api/chat"),
-        "enable_external_tracking": False,
-        "external_tracking_url": None,
-        "header_name": os.getenv("REST_API_HEADER_NAME", "x-api-key"),
-        "api_token": os.getenv("REST_API_KEY", "")
+        "model": required_environment("OLLAMA_MODEL"),
+        "api_key": required_environment("OLLAMA_API_KEY"),
+        "base_url": ollama_chat_url(required_environment("OLLAMA_BASE_URL")),
+        "enable_external_tracking": bool(active_conn and active_conn.get("enable_external_tracking")),
+        "external_tracking_url": active_conn.get("external_tracking_url") if active_conn else None,
+        "header_name": active_conn["header_name"] if active_conn else "x-api-key",
+        "api_token": active_conn["api_token"] if active_conn else "",
     }
 
 def dispatch_external_tracking(url: str, header_name: str, token: str, payload: dict):
