@@ -201,6 +201,11 @@ def run_agent_workflow(req: AgentRunRequest, request: Request):
         raise HTTPException(status_code=502, detail=str(error)) from error
 
     if not res.get("success"):
+        if res.get("blocked_by") == "signet":
+            raise HTTPException(status_code=res["http_status"], detail={
+                "blocked_by": "signet", "message": res["error"],
+                "code": res["code"], "record_id": res["record_id"],
+            })
         raise HTTPException(status_code=500, detail=res.get("error", "AI Agent step execution failed"))
 
     # Save final (clean or intercepted) message to database
@@ -469,6 +474,11 @@ async def run_remote_agent_endpoint(agent_id: str, request: Request):
     )
 
     agent_info = database.get_or_create_registered_agent(agent_id)
+    if res.get("blocked_by") == "signet":
+        raise HTTPException(status_code=res["http_status"], detail={
+            "blocked_by": "signet", "message": res["error"],
+            "code": res["code"], "record_id": res["record_id"],
+        })
     is_intercepted = res.get("intercepted", False)
 
     return {

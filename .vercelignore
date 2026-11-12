@@ -1,0 +1,9 @@
+.git/
+.vercel/
+.env
+.env.*
+venv/
+**/__pycache__/
+**/*.pyc
+vendor/signet-sdk/build/
+vendor/signet-sdk/*.egg-info/

@@ -423,8 +423,12 @@ HTML_UI = """
                     }
                     contentHtml += `<div class="mt-1 text-[10px] text-slate-400">⚡ ${Math.round(data.total_duration_ms || 0)} ms | Prompt: ${data.prompt_tokens || 0} tok | Done: ${data.completion_tokens || 0} tok</div>`;
                     respEl.querySelector('div:last-child').innerHTML = contentHtml;
+                } else if (data.detail && data.detail.blocked_by === 'signet') {
+                    const title = data.detail.code === 'safety_unavailable' ? 'Chat paused by Signet' : 'Chat blocked by Signet';
+                    respEl.querySelector('div:last-child').innerHTML = `<div role="alert" data-testid="signet-block-message" class="p-3 bg-red-50 border border-red-200 rounded text-red-800"><strong>${title}</strong><p class="mt-1">${escapeHtml(data.detail.message)}</p>${data.detail.record_id ? `<p class="mt-2 text-xs">Reference: ${escapeHtml(data.detail.record_id)}</p>` : ''}</div>`;
                 } else {
-                    respEl.querySelector('div:last-child').innerHTML = `<span class="text-red-600 font-semibold">Error (${res.status}): ${escapeHtml(data.detail || 'Request failed')}</span>`;
+                    const detail = typeof data.detail === 'string' ? data.detail : 'Request failed';
+                    respEl.querySelector('div:last-child').innerHTML = `<span class="text-red-600 font-semibold">Error (${res.status}): ${escapeHtml(detail)}</span>`;
                 }
             } catch (err) {
                 document.getElementById(msgId).querySelector('div:last-child').innerHTML = `<span class="text-red-600 font-semibold">Failed to reach server: ${escapeHtml(err.message)}</span>`;

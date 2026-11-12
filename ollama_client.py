@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 from dotenv import load_dotenv
 import database
 from signet_identity import required_setting, workload_token
+from signet_response import signet_refusal, refusal_message
 
 load_dotenv()
 
@@ -125,6 +126,7 @@ def call_ollama(
             }
 
         if response.status_code != 200:
+            refusal = signet_refusal(response)
             err_msg = f"API error {response.status_code}: {response.text}"
             database.log_ai_tracking(
                 session_id=session_id,
@@ -135,7 +137,7 @@ def call_ollama(
                 total_duration_ms=elapsed_ms,
                 prompt_eval_count=0,
                 eval_count=0,
-                status="error",
+                status="intercepted" if refusal else "error",
                 error_message=err_msg,
                 source=source,
                 client_ip=client_ip,
@@ -146,10 +148,14 @@ def call_ollama(
             )
             return {
                 "success": False,
-                "error": err_msg,
+                "error": refusal_message(refusal) if refusal else err_msg,
                 "content": "",
                 "thinking": "",
-                "agent_name": agent_name
+                "agent_name": agent_name,
+                "blocked_by": "signet" if refusal else None,
+                "http_status": response.status_code,
+                "record_id": refusal.record_id if refusal else None,
+                "code": refusal.code if refusal else None,
             }
 
         res_json = response.json()
@@ -332,6 +338,7 @@ def stream_ollama(
         response = requests.post(base_url, headers=headers, json=payload, stream=True, timeout=90)
         
         if response.status_code != 200:
+            refusal = signet_refusal(response)
             err_msg = f"API error {response.status_code}: {response.text}"
             elapsed_ms = (time.time() - start_time) * 1000
             database.log_ai_tracking(
@@ -343,7 +350,7 @@ def stream_ollama(
                 total_duration_ms=elapsed_ms,
                 prompt_eval_count=0,
                 eval_count=0,
-                status="error",
+                status="intercepted" if refusal else "error",
                 error_message=err_msg,
                 source=source,
                 client_ip=client_ip,
@@ -352,7 +359,10 @@ def stream_ollama(
                 step_number=step_number,
                 metadata=metadata
             )
-            yield {"type": "error", "error": err_msg}
+            if refusal:
+                yield {"type": "intercepted", "content": refusal_message(refusal), "rule_name": "Signet", "record_id": refusal.record_id}
+            else:
+                yield {"type": "error", "error": err_msg}
             return
 
         for line in response.iter_lines():
