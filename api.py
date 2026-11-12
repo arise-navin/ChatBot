@@ -13,6 +13,8 @@ import database
 import ollama_client
 from signet_identity import WorkloadClaims, initialize_identity_store, required_setting, workload_token
 from signet_sdk import decode_claims
+from signet_sdk.errors import SignetAuthError
+import httpx
 
 load_dotenv()
 
@@ -183,17 +185,20 @@ def run_agent_workflow(req: AgentRunRequest, request: Request):
     client_ip = request.client.host if request.client else None
     messages_payload = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    res = ollama_client.call_ollama(
-        messages=messages_payload,
-        model=req.model,
-        session_id=session_id,
-        source="rest_api",
-        client_ip=client_ip,
-        agent_name=req.agent_name or "beam-agent-1",
-        action=req.action or "chat_completion",
-        step_number=req.step_number or 1,
-        metadata=req.metadata or {}
-    )
+    try:
+        res = ollama_client.call_ollama(
+            messages=messages_payload,
+            model=req.model,
+            session_id=session_id,
+            source="rest_api",
+            client_ip=client_ip,
+            agent_name=req.agent_name or "beam-agent-1",
+            action=req.action or "chat_completion",
+            step_number=req.step_number or 1,
+            metadata=req.metadata or {}
+        )
+    except (SignetAuthError, httpx.HTTPError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
     if not res.get("success"):
         raise HTTPException(status_code=500, detail=res.get("error", "AI Agent step execution failed"))

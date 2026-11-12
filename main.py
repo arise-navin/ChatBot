@@ -405,6 +405,9 @@ HTML_UI = """
                     })
                 });
 
+                if (!(res.headers.get('content-type') || '').includes('application/json')) {
+                    throw new Error(`Server returned HTTP ${res.status}: ${await res.text()}`);
+                }
                 const data = await res.json();
                 const respEl = document.getElementById(msgId);
                 

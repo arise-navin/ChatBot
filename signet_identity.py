@@ -1,14 +1,12 @@
-"""Persist bootstrap identity across Vercel workers; renew it from Signet maintenance."""
+"""Share short-lived Signet tokens across workers using a deployment credential."""
 
 import os
 import time
-from dataclasses import replace
-from pathlib import Path
-from tempfile import TemporaryDirectory
+import logging
 
 import httpx
 from pydantic import BaseModel, ConfigDict
-from signet_sdk import SignetConfig, TokenManager, decode_claims
+from signet_sdk import decode_claims
 from signet_sdk.errors import SignetAuthError
 
 import database
@@ -24,12 +22,12 @@ class WorkloadClaims(BaseModel):
 def required_setting(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise ValueError(f"{name} is required for the Signet bootstrap connection")
+        raise ValueError(f"{name} is required for the Signet deployment connection")
     return value
 
 
 def initialize_identity_store() -> None:
-    """Store one shared workload identity per agent; never persist the bootstrap secret."""
+    """Store one shared workload token per agent; keep the deployment credential in the environment."""
     connection = database.get_connection()
     try:
         with connection, connection.cursor() as cursor:
@@ -48,8 +46,40 @@ def initialize_identity_store() -> None:
         connection.close()
 
 
+class DeploymentToken(BaseModel):
+    model_config = ConfigDict(strict=True)
+    token: str
+
+
+def exchange_deployment_token() -> str:
+    """Exchange the configured deployment credential, retrying transient service failures."""
+    url = required_setting("SIGNET_CONTROL_URL").rstrip("/") + "/api/v1/identity/deployment-token"
+    credential = required_setting("SIGNET_DEPLOYMENT_CREDENTIAL")
+    with httpx.Client(timeout=15.0) as http:
+        for attempt in range(1, 4):
+            try:
+                response = http.post(url, json={"deployment_credential": credential})
+                if response.status_code >= 400:
+                    raise httpx.HTTPStatusError(
+                        f"Signet POST {url} failed ({response.status_code}): {response.text}",
+                        request=response.request, response=response,
+                    )
+                return DeploymentToken.model_validate(response.json()).token
+            except (httpx.TransportError, httpx.HTTPStatusError) as error:
+                if isinstance(error, httpx.HTTPStatusError) and error.response.status_code < 500:
+                    raise
+                if attempt == 3:
+                    raise
+                logging.getLogger(__name__).warning(
+                    "Signet token exchange failed; retrying",
+                    extra={"url": url, "attempt": attempt, "error": str(error)},
+                )
+                time.sleep(attempt)
+    raise RuntimeError("Signet deployment token exchange exhausted its attempts")
+
+
 def workload_token() -> str:
-    """Serialize SDK token refresh through PostgreSQL so cold starts reuse the same identity."""
+    """Reuse a shared token, obtaining a fresh identity before it expires or after inactivity."""
     agent_id = required_setting("SIGNET_AGENT_ID")
     connection = database.get_connection()
     try:
@@ -68,27 +98,16 @@ def workload_token() -> str:
                 claims = WorkloadClaims.model_validate(decode_claims(stored_token))
                 if claims.agent_id != agent_id:
                     raise SignetAuthError("Stored Signet token belongs to a different agent")
-                if claims.exp <= time.time() + 5:
-                    raise SignetAuthError(
-                        "Signet workload token expired: check the maintenance refresh job, then enroll a new bootstrap identity"
-                    )
-            with TemporaryDirectory(prefix="signet-identity-") as directory:
-                cache_path = Path(directory) / "token"
-                if stored_token is not None:
-                    cache_path.write_text(stored_token, encoding="utf-8")
-                config = replace(
-                    SignetConfig.from_env(), token_cache=str(cache_path), client_id=None, client_secret=None
-                )
-                with httpx.Client(timeout=15.0) as http:
-                    token = TokenManager(config, http=http).token()
-                claims = WorkloadClaims.model_validate(decode_claims(token))
-                if claims.agent_id != agent_id:
-                    raise SignetAuthError("Bootstrap credential belongs to a different Signet agent")
-                if token != stored_token:
-                    cursor.execute(
-                        "UPDATE signet_workload_identity SET workload_token = %s, updated_at = NOW() WHERE agent_id = %s",
-                        (token, agent_id),
-                    )
-                return token
+                if claims.exp > time.time() + 120:
+                    return stored_token
+            token = exchange_deployment_token()
+            claims = WorkloadClaims.model_validate(decode_claims(token))
+            if claims.agent_id != agent_id:
+                raise SignetAuthError("Deployment credential belongs to a different Signet agent")
+            cursor.execute(
+                "UPDATE signet_workload_identity SET workload_token = %s, updated_at = NOW() WHERE agent_id = %s",
+                (token, agent_id),
+            )
+            return token
     finally:
         connection.close()
