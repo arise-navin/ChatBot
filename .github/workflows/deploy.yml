@@ -1,0 +1,40 @@
+name: Deploy ChatBot to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+      - cloudflare-migration
+  workflow_dispatch:
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies & run tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+          cd cloudflare-worker
+          pytest tests -v
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REST_API_KEY: ${{ secrets.REST_API_KEY }}
+          SIGNET_AGENT_ID: ${{ secrets.SIGNET_AGENT_ID }}
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: "cloudflare-worker"
+          command: "deploy"

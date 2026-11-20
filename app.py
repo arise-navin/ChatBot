@@ -97,7 +97,7 @@ if "cfg_name" not in st.session_state:
 if "cfg_base_url" not in st.session_state:
     st.session_state.cfg_base_url = active_conn.get("base_url") or os.getenv("REST_API_BASE_URL", "http://localhost:8000")
 if "cfg_auth_key" not in st.session_state:
-    st.session_state.cfg_auth_key = active_conn.get("auth_api_key") or os.getenv("OLLAMA_API_KEY", "51a39d42270248a985164610a3bbc422.oPhkCuPaHCEAXGfSDBjZ-RWd")
+    st.session_state.cfg_auth_key = active_conn.get("auth_api_key") or os.getenv("OLLAMA_API_KEY", "")
 if "cfg_header_name" not in st.session_state:
     st.session_state.cfg_header_name = active_conn.get("header_name") or os.getenv("REST_API_HEADER_NAME", "x-api-key")
 if "cfg_token" not in st.session_state:
@@ -226,7 +226,7 @@ if menu == "⚡ REST API & Tracker Configuration":
                 st.session_state.cfg_host = "0.0.0.0"
                 st.session_state.cfg_port = 8000
                 st.session_state.cfg_model = "beam:cloud"
-                st.session_state.cfg_auth_key = os.getenv("OLLAMA_API_KEY", "51a39d42270248a985164610a3bbc422.oPhkCuPaHCEAXGfSDBjZ-RWd")
+                st.session_state.cfg_auth_key = os.getenv("OLLAMA_API_KEY", "")
                 st.session_state.cfg_ollama_url = "https://ollama.com/api/chat"
                 st.success("Generated fresh configuration parameters below!")
                 st.rerun()

@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Cloudflare AI ChatBot & Dynamic Tracker Console</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        code, pre { font-family: 'JetBrains Mono', monospace; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .spinner {
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 2px solid white;
+            width: 14px;
+            height: 14px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+    <!-- Top Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">⚡</span>
+                <div>
+                    <h1 class="font-bold text-lg text-slate-900 leading-tight">AI ChatBot & REST Tracker</h1>
+                    <p class="text-xs text-slate-500">Cloudflare Workers Edge • Neon PostgreSQL • Ollama beam:cloud</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span id="badge-cf" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                    🟧 Cloudflare Workers
+                </span>
+                <span id="badge-db" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    🟢 Neon DB
+                </span>
+                <a href="/docs" target="_blank" class="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded border border-blue-200 transition">
+                    Swagger API Docs ↗
+                </a>
+            </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <nav class="max-w-7xl mx-auto px-4 flex space-x-6 border-t border-slate-100 text-sm font-medium">
+            <button onclick="switchTab('chat')" id="tab-btn-chat" class="py-2.5 border-b-2 border-blue-600 text-blue-600 font-semibold transition">💬 AI Agent Chat</button>
+            <button onclick="switchTab('config')" id="tab-btn-config" class="py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition">⚡ REST API & Tracker Config</button>
+            <button onclick="switchTab('guardrail')" id="tab-btn-guardrail" class="py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition">🛡️ Guardrails & Kill-Switch</button>
+            <button onclick="switchTab('logs')" id="tab-btn-logs" class="py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition">📊 AI Tracking Logs</button>
+            <button onclick="switchTab('agents')" id="tab-btn-agents" class="py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition">🤖 Remote Agents</button>
+        </nav>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
+        <!-- Notification Banner -->
+        <div id="notification-box" class="hidden mb-4 p-3 rounded-lg text-sm flex items-center justify-between">
+            <span id="notification-msg"></span>
+            <button onclick="closeNotification()" class="text-xs underline ml-4">Dismiss</button>
+        </div>
+
+        <!-- TAB 1: CHAT CONSOLE -->
+        <section id="tab-chat" class="tab-content active space-y-4">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[680px]">
+                <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50 rounded-t-xl">
+                    <div class="flex items-center space-x-2">
+                        <span class="font-semibold text-sm text-slate-700">Chat Session:</span>
+                        <input id="chat-session-id" type="text" class="text-xs font-mono border border-slate-300 rounded px-2 py-1 w-44" value="session_default" />
+                        <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded" id="chat-model-badge">beam:cloud</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <input id="chat-agent-name" type="text" value="beam-agent-1" class="text-xs border border-slate-300 rounded px-2 py-1 w-32" placeholder="Agent Name">
+                        <button onclick="emergencyStopChatSession()" class="text-xs bg-red-50 text-red-700 border border-red-300 px-2.5 py-1 rounded hover:bg-red-100 font-medium transition">
+                            🛑 Kill Agent
+                        </button>
+                        <button onclick="clearChatUI()" class="text-xs text-slate-500 hover:text-red-600 transition">Clear Chat</button>
+                    </div>
+                </div>
+
+                <!-- Messages Scroll Area -->
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0">AI</div>
+                        <div class="bg-slate-100 rounded-lg p-3 text-sm max-w-2xl text-slate-800">
+                            Hello! I am your AI agent powered by <b>Ollama beam:cloud</b> running serverless on Cloudflare Workers. Ask a question or test safety guardrails!
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input Form -->
+                <div class="p-4 border-t border-slate-200 bg-white rounded-b-xl">
+                    <form onsubmit="handleSendChat(event)" class="flex space-x-2">
+                        <input id="chat-user-input" type="text" placeholder="Type instructions or questions for the AI agent..." class="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        <button type="submit" id="chat-send-btn" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center space-x-1 shrink-0">
+                            <span>Send</span>
+                            <span>🚀</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: CONFIGURATION -->
+        <section id="tab-config" class="tab-content space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-200 mb-6">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Dynamic REST API Connection Profiles</h2>
+                        <p class="text-xs text-slate-500">Configure, generate, and activate dynamic API keys and endpoints in Neon PostgreSQL.</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="generateFreshConfig()" class="bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded hover:bg-blue-700 transition">
+                            🎲 Auto-Generate New Key
+                        </button>
+                        <button onclick="testActiveConnection()" class="bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-3 py-2 rounded hover:bg-slate-200 transition">
+                            🔌 Test Active Connection
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Connection Form -->
+                <form onsubmit="handleSaveConnection(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">1. Connection Name</label>
+                        <input id="cfg-name" type="text" class="w-full text-xs border border-slate-300 rounded px-3 py-2 focus:ring-1 focus:ring-blue-500" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">2. REST API Base URL</label>
+                        <input id="cfg-base-url" type="text" class="w-full text-xs border border-slate-300 rounded px-3 py-2 focus:ring-1 focus:ring-blue-500" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">3. API Key Header Name</label>
+                        <input id="cfg-header-name" type="text" value="x-api-key" class="w-full text-xs border border-slate-300 rounded px-3 py-2 focus:ring-1 focus:ring-blue-500" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">4. API Token (Generated Secret)</label>
+                        <div class="flex space-x-1">
+                            <input id="cfg-token" type="text" class="flex-1 font-mono text-xs border border-slate-300 rounded px-3 py-2 focus:ring-1 focus:ring-blue-500" required>
+                            <button type="button" onclick="randomizeToken()" class="bg-slate-100 border border-slate-300 text-xs px-3 py-2 rounded hover:bg-slate-200">New</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">5. AI Model Name</label>
+                        <input id="cfg-model" type="text" value="beam:cloud" class="w-full text-xs border border-slate-300 rounded px-3 py-2 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">6. Upstream AI Endpoint</label>
+                        <input id="cfg-ollama-url" type="text" value="https://ollama.com/api/chat" class="w-full text-xs border border-slate-300 rounded px-3 py-2 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <div class="md:col-span-2 pt-2">
+                        <button type="submit" class="bg-emerald-600 text-white text-xs font-semibold px-5 py-2.5 rounded hover:bg-emerald-700 transition">
+                            💾 Save Profile to Neon PostgreSQL
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Saved Profiles List -->
+                <div class="mt-8">
+                    <h3 class="text-sm font-bold text-slate-800 mb-3">Saved Connection Profiles</h3>
+                    <div id="connections-list" class="space-y-3">
+                        <div class="text-xs text-slate-500 py-3">Loading connection profiles...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: GUARDRAILS & KILL-SWITCH -->
+        <section id="tab-guardrail" class="tab-content space-y-6">
+            <!-- Emergency Stop Kill-Switch Card -->
+            <div class="bg-red-50 border border-red-200 rounded-xl p-5 shadow-sm">
+                <div class="flex items-center space-x-3 mb-2">
+                    <span class="text-xl">🛑</span>
+                    <h2 class="text-base font-bold text-red-900">Emergency Stop / Abort Kill-Switch</h2>
+                </div>
+                <p class="text-xs text-red-700 mb-4">
+                    Send an instantaneous abort signal to any active or in-flight AI agent session to prevent hallucinated, unauthorized, or incorrect outputs from reaching users.
+                </p>
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                    <input id="kill-session-id" type="text" placeholder="Session ID to terminate (e.g. session_default)" class="flex-1 text-xs border border-red-300 rounded px-3 py-2 focus:ring-1 focus:ring-red-500">
+                    <input id="kill-reason" type="text" placeholder="Reason for abort" value="Stopped by supervisor via REST API Kill-Switch" class="flex-1 text-xs border border-red-300 rounded px-3 py-2 focus:ring-1 focus:ring-red-500">
+                    <button onclick="triggerEmergencyKillSwitch()" class="bg-red-600 text-white text-xs font-semibold px-5 py-2 rounded hover:bg-red-700 transition shrink-0">
+                        ⚡ Send Abort Signal
+                    </button>
+                </div>
+            </div>
+
+            <!-- Guardrails Management -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-200 mb-6">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Safety Guardrails & Interceptor Rules</h2>
+                        <p class="text-xs text-slate-500">Rules evaluated automatically on AI output and thinking traces before delivery to users.</p>
+                    </div>
+                </div>
+
+                <!-- Add Rule Form -->
+                <form onsubmit="handleAddGuardrail(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Rule Name</label>
+                        <input id="gr-name" type="text" placeholder="e.g. Destructive SQL Guard" class="w-full text-xs border border-slate-300 rounded px-3 py-2" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Pattern (Regex or Keywords)</label>
+                        <input id="gr-pattern" type="text" placeholder="e.g. (?i)(DROP\s+TABLE|DELETE\s+FROM)" class="w-full text-xs border border-slate-300 rounded px-3 py-2" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Type & Action</label>
+                        <div class="flex space-x-1">
+                            <select id="gr-type" class="text-xs border border-slate-300 rounded px-2 py-2">
+                                <option value="regex">Regex</option>
+                                <option value="keyword">Keyword</option>
+                            </select>
+                            <button type="submit" class="flex-1 bg-blue-600 text-white text-xs font-semibold px-4 py-2 rounded hover:bg-blue-700">
+                                ➕ Add Rule
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Active Guardrails List -->
+                <div id="guardrails-list" class="space-y-3">
+                    <div class="text-xs text-slate-500">Loading guardrail rules...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: TRACKING LOGS -->
+        <section id="tab-logs" class="tab-content space-y-6">
+            <!-- Stats Dashboard Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p class="text-xs text-slate-500">Total Requests</p>
+                    <p id="stat-total" class="text-xl font-bold text-slate-900 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p class="text-xs text-slate-500">Active Agents</p>
+                    <p id="stat-agents" class="text-xl font-bold text-blue-600 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p class="text-xs text-slate-500">Avg Latency</p>
+                    <p id="stat-latency" class="text-xl font-bold text-slate-900 mt-1">0 ms</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p class="text-xs text-slate-500">Total Tokens</p>
+                    <p id="stat-tokens" class="text-xl font-bold text-indigo-600 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p class="text-xs text-slate-500">Intercepted / Errors</p>
+                    <p id="stat-errors" class="text-xl font-bold text-red-600 mt-1">0</p>
+                </div>
+            </div>
+
+            <!-- Logs Table Card -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-slate-200 mb-4 gap-2">
+                    <h2 class="text-base font-bold text-slate-900">Execution Trace & Audit Trail</h2>
+                    <div class="flex space-x-2">
+                        <select id="filter-status" onchange="loadTrackingLogs()" class="text-xs border border-slate-300 rounded px-2.5 py-1.5">
+                            <option value="">All Statuses</option>
+                            <option value="success">Success</option>
+                            <option value="intercepted">Intercepted</option>
+                            <option value="error">Error</option>
+                            <option value="aborted">Aborted</option>
+                        </select>
+                        <button onclick="loadTrackingLogs()" class="bg-slate-100 hover:bg-slate-200 text-xs px-3 py-1.5 rounded font-medium border border-slate-300">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                            <tr>
+                                <th class="p-3">ID</th>
+                                <th class="p-3">Agent</th>
+                                <th class="p-3">Action</th>
+                                <th class="p-3">Status</th>
+                                <th class="p-3">Tokens</th>
+                                <th class="p-3">Latency</th>
+                                <th class="p-3">Time</th>
+                                <th class="p-3">Inspect</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-tbody" class="divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="8" class="p-4 text-center text-slate-400">Loading tracking logs...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Modal for Inspecting Detailed Trace -->
+            <div id="trace-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                <div class="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+                    <div class="flex items-center justify-between border-b pb-3">
+                        <h3 class="font-bold text-base" id="modal-title">Execution Trace Details</h3>
+                        <button onclick="closeTraceModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">User Prompt</label>
+                        <textarea id="modal-prompt" readonly class="w-full text-xs font-mono bg-slate-50 border rounded p-2.5 h-20"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Internal Thinking / Reasoning Trace</label>
+                        <textarea id="modal-thinking" readonly class="w-full text-xs font-mono bg-amber-50/50 border border-amber-200 rounded p-2.5 h-24 text-amber-900"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Response / Intercepted Content</label>
+                        <textarea id="modal-response" readonly class="w-full text-xs font-mono bg-slate-50 border rounded p-2.5 h-24"></textarea>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: REMOTE AGENTS -->
+        <section id="tab-agents" class="tab-content space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Registered Remote Management Agents</h2>
+                        <p class="text-xs text-slate-500">Supports Remote Management Actions protocol (test, discover, track, executions, run, pause, stop, activate).</p>
+                    </div>
+                    <button onclick="loadRemoteAgents()" class="bg-slate-100 hover:bg-slate-200 text-xs px-3 py-1.5 rounded font-medium border border-slate-300">
+                        🔄 Refresh
+                    </button>
+                </div>
+                <div id="agents-cards-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="text-xs text-slate-500 py-3">Loading registered agents...</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+        AI ChatBot & REST Tracker • Deployed on Cloudflare Workers • Neon PostgreSQL
+    </footer>
+
+    <!-- Frontend Script Logic -->
+    <script>
+        let currentActiveToken = "";
+        let currentHeaderName = "x-api-key";
+        let logsCache = [];
+
+        function showNotification(msg, isError = false) {
+            const box = document.getElementById("notification-box");
+            const text = document.getElementById("notification-msg");
+            box.className = isError 
+                ? "mb-4 p-3 rounded-lg text-xs bg-red-100 text-red-800 border border-red-200 flex items-center justify-between"
+                : "mb-4 p-3 rounded-lg text-xs bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center justify-between";
+            text.textContent = msg;
+            box.classList.remove("hidden");
+            setTimeout(() => { box.classList.add("hidden"); }, 5000);
+        }
+
+        function closeNotification() {
+            document.getElementById("notification-box").classList.add("hidden");
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+            document.querySelectorAll("nav button").forEach(el => {
+                el.classList.remove("border-blue-600", "text-blue-600", "font-semibold");
+                el.classList.add("border-transparent", "text-slate-500");
+            });
+
+            const targetSection = document.getElementById(`tab-${tabId}`);
+            const targetBtn = document.getElementById(`tab-btn-${tabId}`);
+            if (targetSection) targetSection.classList.add("active");
+            if (targetBtn) {
+                targetBtn.classList.remove("border-transparent", "text-slate-500");
+                targetBtn.classList.add("border-b-2", "border-blue-600", "text-blue-600", "font-semibold");
+            }
+
+            if (tabId === 'logs') loadTrackingLogs();
+            if (tabId === 'guardrail') loadGuardrails();
+            if (tabId === 'config') loadConnections();
+            if (tabId === 'agents') loadRemoteAgents();
+        }
+
+        // Initialize and load health / active config
+        async function initApp() {
+            try {
+                const res = await fetch("/api/health");
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.header_name) currentHeaderName = data.header_name;
+                    if (data.active_model) {
+                        document.getElementById("chat-model-badge").textContent = data.active_model;
+                    }
+                }
+            } catch (e) {
+                console.warn("Health check error:", e);
+            }
+            await loadActiveConnection();
+        }
+
+        async function loadActiveConnection() {
+            try {
+                const res = await fetch("/api/connections/active");
+                if (res.ok) {
+                    const conn = await res.json();
+                    currentActiveToken = conn.api_token || "";
+                    currentHeaderName = conn.header_name || "x-api-key";
+                    document.getElementById("cfg-name").value = conn.connection_name || "";
+                    document.getElementById("cfg-base-url").value = conn.base_url || window.location.origin;
+                    document.getElementById("cfg-header-name").value = currentHeaderName;
+                    document.getElementById("cfg-token").value = currentActiveToken;
+                    document.getElementById("cfg-model").value = conn.model_name || "beam:cloud";
+                }
+            } catch (e) {
+                console.warn("Could not load active connection profile:", e);
+            }
+        }
+
+        function getAuthHeaders() {
+            const h = { "Content-Type": "application/json" };
+            if (currentActiveToken) {
+                h[currentHeaderName] = currentActiveToken;
+            }
+            return h;
+        }
+
+        // --- Chat Functions ---
+        async function handleSendChat(e) {
+            e.preventDefault();
+            const input = document.getElementById("chat-user-input");
+            const btn = document.getElementById("chat-send-btn");
+            const text = input.value.trim();
+            if (!text) return;
+
+            const sessionId = document.getElementById("chat-session-id").value.trim() || "session_default";
+            const agentName = document.getElementById("chat-agent-name").value.trim() || "beam-agent-1";
+
+            appendChatMessage("user", text);
+            input.value = "";
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner"></span> <span>Running...</span>`;
+
+            try {
+                const res = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        messages: [{ role: "user", content: text }],
+                        session_id: sessionId,
+                        agent_name: agentName,
+                        save_to_chat: true
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    appendChatMessage("assistant", `❌ Error: ${data.detail || data.error || 'Failed to execute agent'}`);
+                } else {
+                    appendChatMessage("assistant", data.content, data.thinking, data.is_intercepted, data.rule_triggered);
+                }
+            } catch (err) {
+                appendChatMessage("assistant", `❌ Network error: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<span>Send</span> <span>🚀</span>`;
+            }
+        }
+
+        function appendChatMessage(role, content, thinking = null, intercepted = false, ruleName = null) {
+            const container = document.getElementById("chat-messages");
+            const wrapper = document.createElement("div");
+            wrapper.className = "flex items-start space-x-3";
+
+            const isUser = role === "user";
+            const avatar = document.createElement("div");
+            avatar.className = isUser 
+                ? "w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center font-bold text-xs shrink-0"
+                : (intercepted 
+                    ? "w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-xs shrink-0" 
+                    : "w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0");
+            avatar.textContent = isUser ? "YOU" : (intercepted ? "⚠️" : "AI");
+
+            const body = document.createElement("div");
+            body.className = isUser 
+                ? "bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm max-w-2xl text-slate-900"
+                : (intercepted 
+                    ? "bg-red-50 border border-red-200 rounded-lg p-3 text-sm max-w-2xl text-red-900"
+                    : "bg-slate-100 rounded-lg p-3 text-sm max-w-2xl text-slate-800");
+
+            let html = `<div>${content}</div>`;
+            if (ruleName) {
+                html = `<div class="font-semibold text-xs text-red-700 mb-1">🛡️ Guardrail Refusal: ${ruleName}</div>` + html;
+            }
+            if (thinking) {
+                html += `
+                    <details class="mt-2 text-xs text-slate-500 border-t border-slate-200 pt-1.5 cursor-pointer">
+                        <summary class="font-medium text-amber-700">View internal reasoning trace</summary>
+                        <pre class="mt-1 whitespace-pre-wrap font-mono text-[11px] bg-white p-2 rounded border border-slate-200">${thinking}</pre>
+                    </details>
+                `;
+            }
+            body.innerHTML = html;
+            wrapper.appendChild(avatar);
+            wrapper.appendChild(body);
+            container.appendChild(wrapper);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearChatUI() {
+            document.getElementById("chat-messages").innerHTML = "";
+            appendChatMessage("assistant", "Chat history cleared from display.");
+        }
+
+        async function emergencyStopChatSession() {
+            const sess = document.getElementById("chat-session-id").value.trim() || "session_default";
+            try {
+                const res = await fetch("/api/agent/stop", {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ session_id: sess, reason: "Manual kill from web UI" })
+                });
+                const d = await res.json();
+                showNotification(`🛑 Agent session '${sess}' terminated via kill-switch.`);
+                appendChatMessage("assistant", `🛑 [STOPPED] Agent session '${sess}' aborted by kill-switch.`);
+            } catch (err) {
+                showNotification(`Failed to abort: ${err.message}`, true);
+            }
+        }
+
+        // --- Config Tab Functions ---
+        async function loadConnections() {
+            const listEl = document.getElementById("connections-list");
+            try {
+                const res = await fetch("/api/connections");
+                const data = await res.json();
+                if (!data || data.length === 0) {
+                    listEl.innerHTML = `<p class="text-xs text-slate-400">No saved connection profiles found.</p>`;
+                    return;
+                }
+                listEl.innerHTML = data.map(c => `
+                    <div class="p-3 bg-slate-50 border ${c.is_active ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-slate-200'} rounded-lg flex items-center justify-between text-xs">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="font-bold text-slate-800">${c.connection_name}</span>
+                                ${c.is_active ? '<span class="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">ACTIVE</span>' : ''}
+                            </div>
+                            <div class="text-slate-500 mt-0.5">
+                                Base URL: <code>${c.base_url}</code> | Header: <code>${c.header_name}</code>
+                            </div>
+                            <div class="text-slate-400 font-mono text-[11px]">Token: ${c.api_token ? c.api_token.substring(0, 16) + '...' : ''}</div>
+                        </div>
+                        <div class="flex space-x-2">
+                            ${!c.is_active ? `<button onclick="activateConnection(${c.id})" class="bg-emerald-600 text-white px-2.5 py-1 rounded font-medium hover:bg-emerald-700">Activate</button>` : ''}
+                            <button onclick="deleteConnection(${c.id})" class="text-red-600 hover:text-red-800 px-2 py-1">Delete</button>
+                        </div>
+                    </div>
+                `).join("");
+            } catch (err) {
+                listEl.innerHTML = `<p class="text-xs text-red-500">Failed to load profiles: ${err.message}</p>`;
+            }
+        }
+
+        async function activateConnection(id) {
+            try {
+                await fetch(`/api/connections/active/${id}`, { method: "POST" });
+                showNotification(`Connection #${id} set as active.`);
+                await loadActiveConnection();
+                await loadConnections();
+            } catch (err) {
+                showNotification(`Failed to activate: ${err.message}`, true);
+            }
+        }
+
+        async function deleteConnection(id) {
+            if (!confirm("Are you sure you want to delete this profile?")) return;
+            try {
+                await fetch(`/api/connections/${id}`, { method: "DELETE" });
+                showNotification("Connection profile deleted.");
+                await loadConnections();
+            } catch (err) {
+                showNotification(`Delete failed: ${err.message}`, true);
+            }
+        }
+
+        async function handleSaveConnection(e) {
+            e.preventDefault();
+            const name = document.getElementById("cfg-name").value.trim();
+            const baseUrl = document.getElementById("cfg-base-url").value.trim();
+            const header = document.getElementById("cfg-header-name").value.trim();
+            const token = document.getElementById("cfg-token").value.trim();
+            const model = document.getElementById("cfg-model").value.trim();
+            const ollamaUrl = document.getElementById("cfg-ollama-url").value.trim();
+
+            try {
+                const res = await fetch("/api/connections/generate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        connection_name: name,
+                        base_url: baseUrl,
+                        header_name: header,
+                        api_token: token,
+                        model_name: model,
+                        ollama_base_url: ollamaUrl,
+                        is_active: true
+                    })
+                });
+                if (res.ok) {
+                    showNotification("Profile saved and set as active in Neon DB!");
+                    await loadActiveConnection();
+                    await loadConnections();
+                } else {
+                    showNotification("Failed to save profile", true);
+                }
+            } catch (err) {
+                showNotification(`Error: ${err.message}`, true);
+            }
+        }
+
+        function randomizeToken() {
+            const arr = new Uint8Array(16);
+            crypto.getRandomValues(arr);
+            const hex = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+            document.getElementById("cfg-token").value = "beam_sec_" + hex;
+        }
+
+        function generateFreshConfig() {
+            const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+            document.getElementById("cfg-name").value = "Beam-Tracker-" + rand;
+            document.getElementById("cfg-base-url").value = window.location.origin;
+            document.getElementById("cfg-header-name").value = "x-api-key";
+            randomizeToken();
+            showNotification("Generated fresh parameters in form. Click 'Save Profile' to persist.");
+        }
+
+        async function testActiveConnection() {
+            try {
+                const res = await fetch("/api/health");
+                const data = await res.json();
+                if (res.ok && data.database === "connected") {
+                    showNotification(`✅ Connection test passed! Neon DB status: ${data.database}`);
+                } else {
+                    showNotification(`⚠️ Connection test degraded: ${JSON.stringify(data)}`, true);
+                }
+            } catch (err) {
+                showNotification(`Connection test failed: ${err.message}`, true);
+            }
+        }
+
+        // --- Guardrail Tab Functions ---
+        async function loadGuardrails() {
+            const container = document.getElementById("guardrails-list");
+            try {
+                const res = await fetch("/api/guardrails", { headers: getAuthHeaders() });
+                const rules = await res.json();
+                if (!rules || rules.length === 0) {
+                    container.innerHTML = `<p class="text-xs text-slate-400">No guardrail rules found.</p>`;
+                    return;
+                }
+                container.innerHTML = rules.map(r => `
+                    <div class="p-3 bg-slate-50 border ${r.is_active ? 'border-slate-300' : 'border-slate-200 opacity-60'} rounded-lg flex items-center justify-between text-xs">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="font-bold text-slate-800">${r.rule_name}</span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold ${r.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}">
+                                    ${r.is_active ? 'ACTIVE' : 'DISABLED'}
+                                </span>
+                                <span class="bg-blue-50 text-blue-700 px-1 py-0.5 rounded text-[10px]">${r.rule_type}</span>
+                            </div>
+                            <div class="mt-1 font-mono text-[11px] text-slate-600 bg-white p-1 rounded border inline-block max-w-xl truncate">
+                                ${r.pattern}
+                            </div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="toggleGuardrail(${r.id}, ${!r.is_active})" class="px-2.5 py-1 rounded border ${r.is_active ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'}">
+                                ${r.is_active ? 'Disable' : 'Enable'}
+                            </button>
+                            <button onclick="deleteGuardrail(${r.id})" class="text-red-600 hover:text-red-800 px-2 py-1">Delete</button>
+                        </div>
+                    </div>
+                `).join("");
+            } catch (err) {
+                container.innerHTML = `<p class="text-xs text-red-500">Failed to load guardrails: ${err.message}</p>`;
+            }
+        }
+
+        async function handleAddGuardrail(e) {
+            e.preventDefault();
+            const name = document.getElementById("gr-name").value.trim();
+            const pattern = document.getElementById("gr-pattern").value.trim();
+            const type = document.getElementById("gr-type").value;
+            try {
+                const res = await fetch("/api/guardrails", {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ rule_name: name, pattern: pattern, rule_type: type, action: "block" })
+                });
+                if (res.ok) {
+                    showNotification(`Guardrail rule '${name}' added!`);
+                    document.getElementById("gr-name").value = "";
+                    document.getElementById("gr-pattern").value = "";
+                    loadGuardrails();
+                } else {
+                    showNotification("Failed to add rule", true);
+                }
+            } catch (err) {
+                showNotification(`Error: ${err.message}`, true);
+            }
+        }
+
+        async function toggleGuardrail(id, active) {
+            try {
+                await fetch(`/api/guardrails/${id}/toggle?is_active=${active}`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+                loadGuardrails();
+            } catch (err) {
+                showNotification(`Toggle failed: ${err.message}`, true);
+            }
+        }
+
+        async function deleteGuardrail(id) {
+            if (!confirm("Delete this guardrail rule?")) return;
+            try {
+                await fetch(`/api/guardrails/${id}`, {
+                    method: "DELETE",
+                    headers: getAuthHeaders()
+                });
+                showNotification("Rule deleted.");
+                loadGuardrails();
+            } catch (err) {
+                showNotification(`Delete failed: ${err.message}`, true);
+            }
+        }
+
+        async function triggerEmergencyKillSwitch() {
+            const sess = document.getElementById("kill-session-id").value.trim();
+            const reason = document.getElementById("kill-reason").value.trim();
+            if (!sess) {
+                alert("Please provide a session ID to stop.");
+                return;
+            }
+            try {
+                const res = await fetch("/api/agent/stop", {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ session_id: sess, reason: reason })
+                });
+                const d = await res.json();
+                showNotification(`🛑 Kill-switch triggered: ${d.message}`);
+            } catch (err) {
+                showNotification(`Kill-switch failed: ${err.message}`, true);
+            }
+        }
+
+        // --- Tracking Logs Functions ---
+        async function loadTrackingLogs() {
+            try {
+                const statsRes = await fetch("/api/tracking/stats", { headers: getAuthHeaders() });
+                if (statsRes.ok) {
+                    const s = await statsRes.json();
+                    document.getElementById("stat-total").textContent = s.total_requests || 0;
+                    document.getElementById("stat-agents").textContent = s.active_agents_count || 0;
+                    document.getElementById("stat-latency").textContent = Math.round(s.avg_latency_ms || 0) + " ms";
+                    document.getElementById("stat-tokens").textContent = ((s.total_prompt_tokens || 0) + (s.total_completion_tokens || 0)).toLocaleString();
+                    document.getElementById("stat-errors").textContent = s.error_count || 0;
+                }
+            } catch (e) {
+                console.warn("Could not fetch stats:", e);
+            }
+
+            const status = document.getElementById("filter-status").value;
+            let url = "/api/tracking/logs?limit=50";
+            if (status) url += `&status=${status}`;
+
+            const tbody = document.getElementById("logs-tbody");
+            try {
+                const res = await fetch(url, { headers: getAuthHeaders() });
+                const data = await res.json();
+                logsCache = data.logs || [];
+                if (logsCache.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-slate-400">No logs found matching filter.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = logsCache.map((l, idx) => `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-3 font-mono text-[11px] text-slate-500">#${l.id}</td>
+                        <td class="p-3 font-semibold text-slate-800">${l.agent_name || 'agent'}</td>
+                        <td class="p-3 text-slate-600">${l.action || 'run'}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                l.status === 'success' ? 'bg-emerald-100 text-emerald-800' :
+                                (l.status === 'intercepted' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800')
+                            }">
+                                ${l.status}
+                            </span>
+                        </td>
+                        <td class="p-3 font-mono">${(l.prompt_eval_count || 0) + (l.eval_count || 0)}</td>
+                        <td class="p-3 font-mono">${Math.round(l.total_duration_ms || 0)}ms</td>
+                        <td class="p-3 text-slate-400 text-[11px]">${l.created_at ? new Date(l.created_at).toLocaleTimeString() : ''}</td>
+                        <td class="p-3">
+                            <button onclick="openTraceModal(${idx})" class="text-blue-600 hover:text-blue-800 font-semibold underline">
+                                Inspect
+                            </button>
+                        </td>
+                    </tr>
+                `).join("");
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-red-500">Error loading logs: ${err.message}</td></tr>`;
+            }
+        }
+
+        function openTraceModal(idx) {
+            const item = logsCache[idx];
+            if (!item) return;
+            document.getElementById("modal-title").textContent = `Trace #${item.id} - ${item.agent_name} (${item.status})`;
+            document.getElementById("modal-prompt").value = item.prompt || "(No prompt recorded)";
+            document.getElementById("modal-thinking").value = item.thinking || "(No internal thinking trace generated)";
+            document.getElementById("modal-response").value = item.response || (item.error_message ? `Error: ${item.error_message}` : "(No response)");
+            document.getElementById("trace-modal").classList.remove("hidden");
+        }
+
+        function closeTraceModal() {
+            document.getElementById("trace-modal").classList.add("hidden");
+        }
+
+        // --- Remote Agents Tab Functions ---
+        async function loadRemoteAgents() {
+            const container = document.getElementById("agents-cards-container");
+            try {
+                const res = await fetch("/agents");
+                const data = await res.json();
+                const agents = data.agents || [];
+                if (agents.length === 0) {
+                    container.innerHTML = `<p class="text-xs text-slate-400">No registered agents.</p>`;
+                    return;
+                }
+                container.innerHTML = agents.map(a => `
+                    <div class="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="font-bold text-sm text-slate-900">${a.name}</h3>
+                                <p class="text-xs text-slate-500 font-mono">${a.id}</p>
+                            </div>
+                            <span class="px-2 py-0.5 rounded text-xs font-semibold ${a.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+                                ${a.status}
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-600">${a.description || ''}</p>
+                        <div class="flex space-x-2 pt-2 border-t border-slate-200">
+                            <button onclick="controlAgent('${a.id}', 'pause')" class="text-xs px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded hover:bg-amber-100">Pause</button>
+                            <button onclick="controlAgent('${a.id}', 'stop')" class="text-xs px-2.5 py-1 bg-red-50 text-red-800 border border-red-200 rounded hover:bg-red-100">Stop</button>
+                            <button onclick="controlAgent('${a.id}', 'activate')" class="text-xs px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded hover:bg-emerald-100">Activate</button>
+                            <a href="/agents/${a.id}/track" target="_blank" class="text-xs px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 rounded hover:bg-blue-100 ml-auto">Track ↗</a>
+                        </div>
+                    </div>
+                `).join("");
+            } catch (err) {
+                container.innerHTML = `<p class="text-xs text-red-500">Failed to load agents: ${err.message}</p>`;
+            }
+        }
+
+        async function controlAgent(id, action) {
+            try {
+                await fetch(`/agents/${id}/${action}`, { method: "POST" });
+                showNotification(`Agent '${id}' action '${action}' succeeded.`);
+                loadRemoteAgents();
+            } catch (err) {
+                showNotification(`Action failed: ${err.message}`, true);
+            }
+        }
+
+        // Run initialization on load
+        window.addEventListener("DOMContentLoaded", initApp);
+    </script>
+</body>
+</html>

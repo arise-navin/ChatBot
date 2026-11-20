@@ -2,8 +2,11 @@ venv/
 __pycache__/
 *.pyc
 .env
+.env.local
+.dev.vars
 .streamlit/
 .vercel/
-.env.local
+.wrangler/
+dist/
 vendor/signet-sdk/build/
 vendor/signet-sdk/*.egg-info/

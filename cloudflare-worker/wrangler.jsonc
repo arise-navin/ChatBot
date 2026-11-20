@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chatbot",
+  "main": "src/main.py",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": [
+    "python_workers"
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "REST_API_CONNECTION_NAME": "Beam-Ollama-Production-Tracker",
+    "REST_API_HEADER_NAME": "x-api-key",
+    "OLLAMA_MODEL": "beam:cloud",
+    "OLLAMA_BASE_URL": "https://ollama.com/api/chat"
+  }
+}
